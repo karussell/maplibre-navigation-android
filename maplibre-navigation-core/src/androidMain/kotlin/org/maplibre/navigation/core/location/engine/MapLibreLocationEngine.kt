@@ -27,8 +27,8 @@ import org.maplibre.navigation.core.location.toLocation
  *   `requestLocationUpdates(provider, minTime, minDistance, ...)` overload implies a low-power
  *   mode in which the fused provider never engages GPS and only delivers coarse,
  *   network-quality fixes (roughly one every 20 seconds).
- * - Below API 31 there is no GMS-free fused provider, so the raw GPS provider is used for
- *   high accuracy requests and the network provider for low accuracy ones.
+ * - Below API 31 there is no GMS-free fused provider, so the raw GPS provider is used,
+ *   with the network provider as fallback on devices without GPS hardware.
  *
  * Subscribing a single provider makes client-side arbitration between conflicting GPS and
  * network fixes unnecessary, so no filtering heuristic is applied.
@@ -98,21 +98,14 @@ open class MapLibreLocationEngine(
 
     private fun selectProvider(accuracy: LocationEngine.Request.Accuracy): String {
         val providers = locationManager.allProviders
-        if (accuracy == LocationEngine.Request.Accuracy.LOWEST) {
-            return LocationManager.PASSIVE_PROVIDER
+        return when {
+            // A LOWEST request must not engage any sensor, like PRIORITY_NO_POWER did before
+            accuracy == LocationEngine.Request.Accuracy.LOWEST -> LocationManager.PASSIVE_PROVIDER
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                providers.contains(LocationManager.FUSED_PROVIDER) -> LocationManager.FUSED_PROVIDER
+            providers.contains(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            providers.contains(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> LocationManager.PASSIVE_PROVIDER
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            providers.contains(LocationManager.FUSED_PROVIDER)
-        ) {
-            return LocationManager.FUSED_PROVIDER
-        }
-
-        val preferred = if (accuracy == LocationEngine.Request.Accuracy.HIGH) {
-            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        } else {
-            listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
-        }
-        return preferred.firstOrNull { provider -> providers.contains(provider) }
-            ?: LocationManager.PASSIVE_PROVIDER
     }
 }
